@@ -20,6 +20,8 @@ PURCHASE_ACTION_KEYS = [
     "onsite_conversion.purchase",
 ]
 
+DEBUG_FIRST_ROW = True
+
 
 def log(msg: str):
     print(msg, flush=True)
@@ -74,6 +76,7 @@ def get_dates():
     this_month_start = datetime.date(yesterday.year, yesterday.month, 1)
     last_month_end = this_month_start - datetime.timedelta(days=1)
     last_month_start = datetime.date(last_month_end.year, last_month_end.month, 1)
+
     return last_month_start, yesterday
 
 
@@ -91,20 +94,36 @@ def to_decimal(v):
         return Decimal("0")
 
 
-def decimal_to_str(v):
-    if isinstance(v, Decimal):
-        s = format(v.normalize(), "f")
-        return s.rstrip("0").rstrip(".") if "." in s else s
-    return str(v)
+def decimal_to_sheet_number(value):
+    if value is None:
+        return 0
+
+    if not isinstance(value, Decimal):
+        value = to_decimal(value)
+
+    if value == value.to_integral_value():
+        return int(value)
+    return float(value)
 
 
-def extract_metric(items, keys):
+def extract_metric(items, keys, attribution_key="1d_click"):
+    """
+    actions / action_values から、対象 action_type の値を取得。
+    優先順位:
+    1. item[attribution_key] 例: item["1d_click"]
+    2. item["value"]
+    """
     if not items:
         return Decimal("0")
+
     for key in keys:
         for item in items:
             if item.get("action_type") == key:
-                return to_decimal(item.get("value", 0))
+                if attribution_key in item:
+                    return to_decimal(item.get(attribution_key, 0))
+                if "value" in item:
+                    return to_decimal(item.get("value", 0))
+
     return Decimal("0")
 
 
@@ -115,6 +134,7 @@ def fetch_all_insights(act_id, params):
 
     while url:
         log(f"Meta API request page={page}")
+
         try:
             res = requests.get(url, params=params, timeout=120)
         except Exception as e:
@@ -146,16 +166,20 @@ def fetch_campaign_day_rows(act_id, token, start_date, end_date):
         "time_increment": "1",
         "time_range": build_time_range(start_date, end_date),
         "fields": "campaign_name,adset_name,ad_name,actions,action_values,date_start",
-        "action_attribution_windows": ["1d_click"],
-        "action_report_time": "conversion",
+        "action_attribution_windows": '["1d_click"]',
         "limit": 5000,
     }
 
     raw = fetch_all_insights(act_id, params)
+
+    if DEBUG_FIRST_ROW and raw:
+        log("=== DEBUG: first campaign row ===")
+        log(json.dumps(raw[0], ensure_ascii=False, indent=2))
+
     rows = []
     for item in raw:
-        cv = extract_metric(item.get("actions", []), PURCHASE_ACTION_KEYS)
-        sales = extract_metric(item.get("action_values", []), PURCHASE_ACTION_KEYS)
+        cv = extract_metric(item.get("actions", []), PURCHASE_ACTION_KEYS, "1d_click")
+        sales = extract_metric(item.get("action_values", []), PURCHASE_ACTION_KEYS, "1d_click")
 
         rows.append([
             MEDIA_NAME,
@@ -164,9 +188,10 @@ def fetch_campaign_day_rows(act_id, token, start_date, end_date):
             item.get("campaign_name", ""),
             "",
             "",
-            float(cv),
-            float(sales),
+            decimal_to_sheet_number(cv),
+            decimal_to_sheet_number(sales),
         ])
+
     return rows
 
 
@@ -177,16 +202,20 @@ def fetch_ad_month_rows(act_id, token, start_date, end_date):
         "time_increment": "monthly",
         "time_range": build_time_range(start_date, end_date),
         "fields": "campaign_name,adset_name,ad_name,actions,action_values,date_start",
-        "action_attribution_windows": ["1d_click"],
-        "action_report_time": "conversion",
+        "action_attribution_windows": '["1d_click"]',
         "limit": 5000,
     }
 
     raw = fetch_all_insights(act_id, params)
+
+    if DEBUG_FIRST_ROW and raw:
+        log("=== DEBUG: first ad row ===")
+        log(json.dumps(raw[0], ensure_ascii=False, indent=2))
+
     rows = []
     for item in raw:
-        cv = extract_metric(item.get("actions", []), PURCHASE_ACTION_KEYS)
-        sales = extract_metric(item.get("action_values", []), PURCHASE_ACTION_KEYS)
+        cv = extract_metric(item.get("actions", []), PURCHASE_ACTION_KEYS, "1d_click")
+        sales = extract_metric(item.get("action_values", []), PURCHASE_ACTION_KEYS, "1d_click")
 
         date_start = item.get("date_start", "")
         period = date_start[:7] if len(date_start) >= 7 else date_start
@@ -198,14 +227,16 @@ def fetch_ad_month_rows(act_id, token, start_date, end_date):
             item.get("campaign_name", ""),
             item.get("adset_name", ""),
             item.get("ad_name", ""),
-            float(cv),
-            float(sales),
+            decimal_to_sheet_number(cv),
+            decimal_to_sheet_number(sales),
         ])
+
     return rows
 
 
 def main():
     log("=== Start Meta to Sheets ===")
+
     config = load_config()
 
     token = config["m_token"]
@@ -220,7 +251,6 @@ def main():
     log(f"Worksheet: {worksheet_name}")
     log(f"Act ID tail: {act_id[-4:]}")
 
-    # Google Sheets
     try:
         client = gspread.service_account_from_dict(config["g_creds"])
         sh = client.open_by_key(spreadsheet_id)
@@ -229,7 +259,6 @@ def main():
     except Exception as e:
         fail(f"Google Sheets 接続失敗: {e}")
 
-    # Meta
     campaign_rows = fetch_campaign_day_rows(act_id, token, start_date, end_date)
     log(f"campaign_day rows = {len(campaign_rows)}")
 
@@ -251,7 +280,7 @@ def main():
 
     try:
         ws.clear()
-        ws.update([header] + rows)
+        ws.update([header] + rows, value_input_option="USER_ENTERED")
         log(f"Write success: {len(rows)} rows")
     except Exception as e:
         fail(f"シート書き込み失敗: {e}")
