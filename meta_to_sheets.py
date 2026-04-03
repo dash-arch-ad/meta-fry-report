@@ -147,7 +147,7 @@ def fetch_campaign_day_rows(act_id, token, start_date, end_date):
         "time_range": build_time_range(start_date, end_date),
         "fields": "campaign_name,adset_name,ad_name,actions,action_values,date_start",
         "action_attribution_windows": '["1d_click"]',
-        "action_report_time": "mixed",
+        "action_report_time": "conversion",
         "limit": 5000,
     }
 
@@ -178,7 +178,7 @@ def fetch_ad_month_rows(act_id, token, start_date, end_date):
         "time_range": build_time_range(start_date, end_date),
         "fields": "campaign_name,adset_name,ad_name,actions,action_values,date_start",
         "action_attribution_windows": '["1d_click"]',
-        "action_report_time": "mixed",
+        "action_report_time": "conversion",
         "limit": 5000,
     }
 
