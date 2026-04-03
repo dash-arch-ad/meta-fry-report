@@ -108,10 +108,8 @@ def decimal_to_sheet_number(value):
 
 def extract_metric(items, keys, attribution_key="1d_click"):
     """
-    actions / action_values から、対象 action_type の値を取得。
-    優先順位:
-    1. item[attribution_key] 例: item["1d_click"]
-    2. item["value"]
+    actions / action_values から、対象 action_type の指定attribution値のみ取得する。
+    attribution_key が無い場合は 0 を返す。
     """
     if not items:
         return Decimal("0")
@@ -119,10 +117,7 @@ def extract_metric(items, keys, attribution_key="1d_click"):
     for key in keys:
         for item in items:
             if item.get("action_type") == key:
-                if attribution_key in item:
-                    return to_decimal(item.get(attribution_key, 0))
-                if "value" in item:
-                    return to_decimal(item.get("value", 0))
+                return to_decimal(item.get(attribution_key, 0))
 
     return Decimal("0")
 
