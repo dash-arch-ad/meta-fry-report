@@ -164,8 +164,8 @@ def fetch_campaign_day_rows(act_id, token, start_date, end_date):
             item.get("campaign_name", ""),
             "",
             "",
-            decimal_to_str(cv),
-            decimal_to_str(sales),
+            float(cv),
+            float(sales),
         ])
     return rows
 
@@ -198,8 +198,8 @@ def fetch_ad_month_rows(act_id, token, start_date, end_date):
             item.get("campaign_name", ""),
             item.get("adset_name", ""),
             item.get("ad_name", ""),
-            decimal_to_str(cv),
-            decimal_to_str(sales),
+            float(cv),
+            float(sales),
         ])
     return rows
 
